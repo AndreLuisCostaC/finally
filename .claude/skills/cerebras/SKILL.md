@@ -23,7 +23,7 @@ Use code like these examples in order to use Cerebras.
 
 ```python
 from litellm import completion
-MODEL = "openrouter/openai/gpt-oss-120b"
+MODEL = "openrouter/openai/gpt-4o"
 EXTRA_BODY = {"provider": {"order": ["cerebras"]}}
 ```
 
