@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
@@ -15,6 +16,11 @@ from .cache import PriceCache
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/stream", tags=["streaming"])
+
+# Send a heartbeat comment every N seconds to keep proxies alive
+HEARTBEAT_INTERVAL = 15.0
+# How often to check for price updates and push to clients
+TICK_INTERVAL = 0.5
 
 
 def create_stream_router(price_cache: PriceCache) -> APIRouter:
@@ -27,13 +33,15 @@ def create_stream_router(price_cache: PriceCache) -> APIRouter:
     async def stream_prices(request: Request) -> StreamingResponse:
         """SSE endpoint for live price updates.
 
-        Streams all tracked ticker prices every ~500ms. The client connects
-        with EventSource and receives events in the format:
+        Streams one event per ticker every ~500ms. Each event uses the
+        normative SSE wire format defined in PLAN.md Section 6:
 
-            data: {"AAPL": {"ticker": "AAPL", "price": 190.50, ...}, ...}
+            event: price_update
+            data: {"type":"price_update","data":{"ticker":"AAPL",...}}
 
-        Includes a retry directive so the browser auto-reconnects on
-        disconnection (EventSource built-in behavior).
+        Includes:
+          - retry: 3000 directive on initial connection
+          - Heartbeat comment (: \\n\\n) every 15 seconds
         """
         return StreamingResponse(
             _generate_events(price_cache, request),
@@ -48,22 +56,55 @@ def create_stream_router(price_cache: PriceCache) -> APIRouter:
     return router
 
 
+def _format_price_event(ticker: str, price: float, previous_price: float, timestamp: float) -> str:
+    """Format a single price update as an SSE event.
+
+    Follows the normative wire contract from PLAN.md Section 6:
+      - event: price_update
+      - data: JSON with type wrapper and change_pct field
+      - timestamp as ISO 8601 UTC string
+    """
+    change_pct = 0.0
+    if previous_price != 0:
+        change_pct = round((price - previous_price) / previous_price * 100, 4)
+
+    iso_timestamp = datetime.fromtimestamp(timestamp, tz=UTC).isoformat().replace("+00:00", "Z")
+
+    payload = json.dumps(
+        {
+            "type": "price_update",
+            "data": {
+                "ticker": ticker,
+                "price": price,
+                "previous_price": previous_price,
+                "change_pct": change_pct,
+                "timestamp": iso_timestamp,
+            },
+        }
+    )
+    return f"event: price_update\ndata: {payload}\n\n"
+
+
 async def _generate_events(
     price_cache: PriceCache,
     request: Request,
-    interval: float = 0.5,
+    tick_interval: float = TICK_INTERVAL,
+    heartbeat_interval: float = HEARTBEAT_INTERVAL,
 ) -> AsyncGenerator[str, None]:
     """Async generator that yields SSE-formatted price events.
 
-    Sends all prices every `interval` seconds. Stops when the client
-    disconnects (detected via request.is_disconnected()).
+    Sends one event per ticker every `tick_interval` seconds.
+    Sends heartbeat comments every `heartbeat_interval` seconds.
+    Stops when the client disconnects.
     """
-    # Tell the client to retry after 1 second if the connection drops
-    yield "retry: 1000\n\n"
+    # Tell the client to reconnect after 3 seconds if the connection drops
+    yield "retry: 3000\n\n"
 
-    last_version = -1
     client_ip = request.client.host if request.client else "unknown"
     logger.info("SSE client connected: %s", client_ip)
+
+    loop = asyncio.get_running_loop()
+    last_heartbeat = loop.time()
 
     try:
         while True:
@@ -72,16 +113,23 @@ async def _generate_events(
                 logger.info("SSE client disconnected: %s", client_ip)
                 break
 
-            current_version = price_cache.version
-            if current_version != last_version:
-                last_version = current_version
-                prices = price_cache.get_all()
+            now = loop.time()
 
-                if prices:
-                    data = {ticker: update.to_dict() for ticker, update in prices.items()}
-                    payload = json.dumps(data)
-                    yield f"data: {payload}\n\n"
+            # Send heartbeat if due
+            if now - last_heartbeat >= heartbeat_interval:
+                yield ":\n\n"
+                last_heartbeat = now
 
-            await asyncio.sleep(interval)
+            # Emit one event per ticker
+            prices = price_cache.get_all()
+            for ticker, update in prices.items():
+                yield _format_price_event(
+                    ticker=ticker,
+                    price=update.price,
+                    previous_price=update.previous_price,
+                    timestamp=update.timestamp,
+                )
+
+            await asyncio.sleep(tick_interval)
     except asyncio.CancelledError:
         logger.info("SSE stream cancelled for: %s", client_ip)
