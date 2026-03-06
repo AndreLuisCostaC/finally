@@ -1,3 +1,11 @@
+# Market Data Backend — Design
+
+Implementation-ready design for the FinAlly market data subsystem. Covers the unified interface, in-memory price cache, GBM simulator, Massive API client, SSE streaming endpoint, and FastAPI lifecycle integration.
+
+Everything in this document lives under `backend/app/market/`.
+
+> **Status**: Component implemented and reviewed. See `planning/archive/MARKET_DATA_REVIEW.md` for the post-implementation code review. Archived pre-implementation design is in `planning/archive/MARKET_DATA_DESIGN.md`.
+
 # Market Data Backend — Detailed Design
 
 Implementation-ready design for the FinAlly market data subsystem. Covers the
@@ -21,6 +29,8 @@ Everything in this document lives under `backend/app/market/`.
 9. [SSE Streaming Endpoint — `stream.py`](#9-sse-streaming-endpoint)
 10. [FastAPI Lifecycle Integration](#10-fastapi-lifecycle-integration)
 11. [Watchlist Coordination](#11-watchlist-coordination)
+12. [Error Handling & Edge Cases](#12-error-handling--edge-cases)
+13. [Configuration Summary](#13-configuration-summary)
 12. [Testing Strategy](#12-testing-strategy)
 13. [Error Handling & Edge Cases](#13-error-handling--edge-cases)
 14. [Configuration Summary](#14-configuration-summary)
