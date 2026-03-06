@@ -1,5 +1,7 @@
 """Tests for PriceCache."""
 
+import threading
+
 from app.market.cache import PriceCache
 
 
@@ -101,3 +103,40 @@ class TestPriceCache:
         cache = PriceCache()
         update = cache.update("AAPL", 190.12345)
         assert update.price == 190.12
+
+    def test_thread_safety_concurrent_writes(self):
+        """Concurrent update() calls from multiple threads must not corrupt state.
+
+        Verifies: no None values in cache, version monotonically reflects all
+        writes, and no exceptions are raised under contention.
+        """
+        cache = PriceCache()
+        errors: list[Exception] = []
+
+        def writer(ticker: str, base_price: float, count: int) -> None:
+            try:
+                for i in range(count):
+                    cache.update(ticker, base_price + i * 0.01)
+            except Exception as exc:
+                errors.append(exc)
+
+        tickers = ["AAPL", "GOOGL", "MSFT", "AMZN", "TSLA"]
+        writes_per_thread = 200
+        threads = [
+            threading.Thread(target=writer, args=(t, 100.0 + idx * 10, writes_per_thread))
+            for idx, t in enumerate(tickers)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert errors == [], f"Thread errors: {errors}"
+        # Every ticker should have a valid, non-None entry
+        for ticker in tickers:
+            update = cache.get(ticker)
+            assert update is not None
+            assert update.price is not None
+            assert update.price > 0
+        # Version must reflect all writes (one increment per update call)
+        assert cache.version == len(tickers) * writes_per_thread

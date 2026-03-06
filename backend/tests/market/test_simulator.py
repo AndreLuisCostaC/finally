@@ -3,6 +3,8 @@
 from app.market.seed_prices import SEED_PRICES
 from app.market.simulator import GBMSimulator
 
+DEFAULT_TICKERS = ["AAPL", "GOOGL", "MSFT", "AMZN", "TSLA", "NVDA", "META", "JPM", "V", "NFLX"]
+
 
 class TestGBMSimulator:
     """Unit tests for the GBM price simulator."""
@@ -129,3 +131,17 @@ class TestGBMSimulator:
         if '.' in price_str:
             decimal_part = price_str.split('.')[1]
             assert len(decimal_part) <= 2
+
+    def test_full_default_ticker_set_cholesky(self):
+        """Cholesky decomposition succeeds for all 10 default tickers.
+
+        Guards against future changes to CORRELATION_GROUPS or correlation
+        coefficients that break positive-definiteness of the matrix.
+        """
+        sim = GBMSimulator(tickers=DEFAULT_TICKERS)
+        assert sim._cholesky is not None
+        # Step should complete without error for the full default set
+        result = sim.step()
+        assert set(result.keys()) == set(DEFAULT_TICKERS)
+        for ticker in DEFAULT_TICKERS:
+            assert result[ticker] > 0

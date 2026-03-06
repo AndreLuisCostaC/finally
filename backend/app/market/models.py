@@ -36,8 +36,13 @@ class PriceUpdate:
             return "down"
         return "flat"
 
-    def to_dict(self) -> dict:
-        """Serialize for JSON / SSE transmission."""
+    def to_internal_dict(self) -> dict:
+        """Serialize to an internal dictionary for debugging and logging.
+
+        Note: this is NOT the SSE wire format. The SSE wire format is produced
+        by stream._format_price_event() and uses different field names
+        (change_pct vs change_percent, ISO 8601 timestamp vs Unix float).
+        """
         return {
             "ticker": self.ticker,
             "price": self.price,
