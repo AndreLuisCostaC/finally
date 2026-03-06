@@ -56,10 +56,10 @@ class TestPriceUpdate:
         update = PriceUpdate(ticker="AAPL", price=190.00, previous_price=190.00, timestamp=1234567890.0)
         assert update.direction == "flat"
 
-    def test_to_dict(self):
-        """Test serialization to dictionary."""
+    def test_to_internal_dict(self):
+        """Test serialization to internal dictionary (not SSE wire format)."""
         update = PriceUpdate(ticker="AAPL", price=190.50, previous_price=190.00, timestamp=1234567890.0)
-        result = update.to_dict()
+        result = update.to_internal_dict()
 
         assert result["ticker"] == "AAPL"
         assert result["price"] == 190.50
